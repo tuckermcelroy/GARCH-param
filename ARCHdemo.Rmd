@@ -1,0 +1,546 @@
+---
+title: "(G)ARCH Parameterization"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, setup, include=FALSE}
+knitr::opts_knit$set(root.dir = 'C:/Users/neide/OneDrive/Documents/GitHub/GARCH-param')
+```
+
+```{r}
+source("polymul.r")
+source("arch2psi.r")
+source("psi2arch.r")
+source("sim.arch.r")
+source("lik.arch.r")
+source("lik.tarch.r")
+source("sim.garch.r")
+source("lik.garch.r")
+source("lik.tgarch.r")
+library(tseries)
+library(fGarch)
+library(rugarch)
+```
+
+# ARCH Case
+
+## Check Bijection
+
+```{r}
+set.seed(777)
+p <- 10
+psi <- rnorm(p+1)
+out <- cbind(psi,psi2arch(psi),arch2psi(psi2arch(psi)))
+colnames(out) <- c("psi","arch","psi")
+label <- c("alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+
+## Gaussian Test Simulation
+
+### Simulate and Plot
+
+```{r}
+set.seed(111)
+T <- 2000
+df <- Inf
+z.sim <- sim.arch(psi2arch(psi),T,rnorm(p),df)
+plot(ts(z.sim))
+```
+
+### Test Likelihood Evaluation
+
+```{r}
+lik.arch(psi,z.sim,df)
+```
+
+###  Fit an ARCH(p) model
+
+```{r}
+psi.init <- rep(0,p+1)
+arch.fit <- optim(psi.init,lik.arch,data=z.sim,df=Inf,method="BFGS")
+print(arch.fit)
+out <- cbind(round(psi2arch(arch.fit$par),digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+ 
+### Compare to "tseries garch" Based on Gaussian Error
+
+```{r}
+arch.fit2 <- garch(z.sim, order = c(0, p))
+```
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(arch.fit2$coef),z.sim,Inf)
+out <- cbind(round(arch.fit2$coef,digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "fGarch" Based on Gaussian error
+
+Note that we have to put in a numeric value for the order. In this case $p =$ `r p`.
+
+```{r}
+arch.fit3 <- garchFit(~ garch(10,0), z.sim)
+```
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(arch.fit3@fit$coef[2:(p+2)]),z.sim,Inf)
+out <- cbind(round(arch.fit3@fit$coef,digits=6),c(0,psi2arch(psi)))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "ruGarch" Based on Gaussian error
+
+```{r}
+spec <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(10,0)),
+                   mean.model = list(armaOrder = c(0,0)))
+arch.fit4 <- ugarchfit(data = z.sim, spec = spec)
+```
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(coef(arch.fit4)[2:(p+2)]),z.sim,Inf)
+out <- cbind(round(coef(arch.fit4),digits=6),c(0,psi2arch(psi)))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+
+
+
+## Student t Test Simulation
+
+### Simulate and Plot
+
+```{r}
+set.seed(555)
+T <- 2000
+df <- 4
+z.sim <- sim.arch(psi2arch(psi),T,rnorm(p),df)
+plot(ts(z.sim))
+```
+
+
+### Test Likelihood Evaluation
+
+```{r}
+lik.arch(psi,z.sim,df)
+```
+
+###  Fit an ARCH(p) model
+ 
+```{r}
+psi.init <- rep(0,p+2)
+arch.fit <- optim(psi.init,lik.tarch,data=z.sim,method="BFGS")
+print(arch.fit)
+out <- cbind(c(psi2arch(arch.fit$par[1:(p+1)]),2+exp(arch.fit$par[p+2])),c(psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+
+### Compare to "tseries garch" Based on Gaussian Error
+ 
+```{r}
+arch.fit2 <- garch(z.sim, order = c(0, p))
+```
+
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(arch.fit2$coef),z.sim,Inf)
+out <- cbind(round(arch.fit2$coef,digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+rownames(out) <- label
+print(out)
+```
+ 
+
+### Compare to "fGarch" Based on Student t error
+
+```{r}
+arch.fit3 <- garchFit(~ garch(10,0), data = z.sim, cond.dist = "std")
+``` 
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(coef(arch.fit3)[2:(p+2)]),z.sim,coef(arch.fit3)[p+3])
+out <- cbind(round(coef(arch.fit3),digits=6),c(0,psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "ruGarch" Based on Student t error
+
+```{r}
+spec <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(10,0)),
+                   mean.model = list(armaOrder = c(0,0)),
+                   distribution.model = "std")
+arch.fit4 <- ugarchfit(data = z.sim, spec = spec)
+```
+
+#### Summarize Output
+
+```{r}
+lik.arch(arch2psi(coef(arch.fit4)[2:(p+2)]),z.sim,coef(arch.fit4)[p+3])
+out <- cbind(round(coef(arch.fit4),digits=6),c(0,psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+
+
+# GARCH Case
+
+## Check Bijection
+
+```{r}
+set.seed(888)
+p <- 1
+q <- 5
+psi <- rnorm(p+q+1)
+out <- cbind(psi,psi2arch(psi),arch2psi(psi2arch(psi)))
+colnames(out) <- c("psi","arch","psi")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+
+## Gaussian Test Simulation
+
+### Simulate and Plot
+
+```{r}
+set.seed(222)
+T <- 2000
+df <- Inf
+z.sim <- sim.garch(psi2arch(psi),T,rnorm(p),df)
+plot(ts(z.sim))
+```
+
+
+### Test Likelihood Evaluation
+
+```{r}
+lik.garch(psi,z.sim,p,df)
+``` 
+ 
+   
+###  Fit a GARCH(p,q) model
+
+```{r}
+psi.init <- rep(0,p+q+1)
+garch.fit <- optim(psi.init,fn=lik.garch,data=z.sim,p.order=p,df=Inf,method="BFGS")
+print(garch.fit)
+out <- cbind(round(psi2arch(garch.fit$par),digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+ 
+
+### Compare to "tseries garch" Based on Gaussian Error
+
+```{r}
+garch.fit2 <- garch(z.sim, order = c(q, p))
+```  
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(garch.fit2$coef),z.sim,p,df=Inf)
+out <- cbind(round(garch.fit2$coef,digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "fGarch" Based on Gaussian error
+
+Note that we have to put in a numeric value for the order. In this case $p =$ `r p` and $q =$ `r q`.
+
+```{r}
+garch.fit3 <- garchFit(~ garch(1,5), z.sim)
+```
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit3)[2:(p+q+2)]),z.sim,p,Inf)
+out <- cbind(round(coef(garch.fit3),digits=6),c(0,psi2arch(psi)))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+### Compare to "ruGarch" Based on Gaussian error
+
+```{r}
+spec <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,5)),
+                   mean.model = list(armaOrder = c(0,0)))
+garch.fit4 <- ugarchfit(data = z.sim, spec = spec)
+```
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit4)[2:(p+q+2)]),z.sim,p,Inf)
+out <- cbind(round(coef(garch.fit4),digits=6),c(0,psi2arch(psi)))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+``` 
+
+
+## Student t Test Simulation
+
+### Simulate and Plot
+
+```{r}
+set.seed(444)
+T <- 2000
+df <- 5
+z.sim <- sim.garch(psi2arch(psi),T,rnorm(p),df)
+plot(ts(z.sim))
+``` 
+ 
+
+### Test Likelihood Evaluation
+
+```{r}
+lik.garch(psi,z.sim,p,df)
+```
+
+###  Fit a GARCH(p,q) model
+ 
+```{r}
+psi.init <- rep(0,p+q+2)
+garch.fit <- optim(psi.init,fn=lik.tgarch,data=z.sim,p.order=p,method="BFGS")
+print(garch.fit)
+out <- cbind(c(psi2arch(garch.fit$par[1:(p+q+1)]),2+exp(arch.fit$par[p+q+2])),c(psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```  
+  
+### Compare to "tseries garch" Based on Gaussian Error
+ 
+```{r}
+garch.fit2 <- garch(z.sim, order = c(q, p))
+```
+
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(garch.fit2$coef),z.sim,p,df=Inf)
+out <- cbind(round(garch.fit2$coef,digits=6),psi2arch(psi))
+colnames(out) <- c("MLE","Truth")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+ 
+
+### Compare to "fGarch" Based on Student t error
+
+```{r}
+garch.fit3 <- garchFit(~ garch(1,5), data = z.sim, cond.dist = "std")
+``` 
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit3)[2:(p+q+2)]),z.sim,p,coef(garch.fit3)[p+q+3])
+out <- cbind(round(coef(garch.fit3),digits=6),c(0,psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "ruGarch" Based on Student t error
+
+```{r}
+spec <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,5)),
+                   mean.model = list(armaOrder = c(0,0)),
+                   distribution.model = "std")
+garch.fit4 <- ugarchfit(data = z.sim, spec = spec)
+```
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit4)[2:(p+q+2)]),z.sim,p,coef(garch.fit4)[p+q+3])
+out <- cbind(round(coef(garch.fit4),digits=6),c(0,psi2arch(psi),df))
+colnames(out) <- c("MLE","Truth")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+
+
+   
+   
+# Data Analysis
+
+We examine the *EuStockMarkets* data set of base R (https://www.rdocumentation.org/packages/datasets/versions/3.6.2/topics/EuStockMarkets), consisting of daily closing prices Of major European stock indices: Germany DAX (Ibis), Switzerland SMI, France CAC, and UK FTSE. The time period is 1991-1998, with weekends and holidays are omitted. 
+
+## Fit Using "tseries garch"
+
+We focus on the DAX log returns.
+
+```{r}
+data(EuStockMarkets)  
+dax <- diff(log(EuStockMarkets))[,"DAX"]
+dax.garch <- garch(dax)  # Fit a GARCH(1,1) to DAX returns
+summary(dax.garch)       # ARCH effects are filtered. However, 
+plot(dax.garch)          # conditional normality seems to be violated
+```
+
+We can examine the likelihood and parameter estimates based on using "tseries garch".
+
+```{r}
+p <- 1
+q <- 1
+lik.garch(arch2psi(dax.garch$coef),dax,p,df=Inf)
+out <- round(dax.garch$coef,digits=6)
+out <- as.matrix(out)
+colnames(out) <- c("MLE")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+rownames(out) <- label
+print(out)
+```
+
+
+## Fit Using t GARCH Stationary Parameterization
+
+We can try using a t distribution with the stationary parameterization. To help out the optimization, we initialize with the Gaussian GARCH(1,1) fit of "tseries garch".
+
+```{r}
+psi.init <- c(arch2psi(dax.garch$coef),0)
+garch.fit <- optim(psi.init,fn=lik.tgarch,data=dax,p.order=p,method="BFGS")
+print(garch.fit)
+out <- round(c(psi2arch(garch.fit$par[1:(p+q+1)]),2+exp(garch.fit$par[p+q+2])),digits=6)
+out <- as.matrix(out)
+colnames(out) <- c("MLE")
+label <- c("alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+   
+## Fit Using t GARCH from "fGarch"
+   
+```{r}
+garch.fit3 <- garchFit(~ garch(1,1), data = dax, cond.dist = "std")
+``` 
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit3)[2:(p+q+2)]),dax,p,coef(garch.fit3)[p+q+3])
+out <- cbind(round(coef(garch.fit3),digits=6),NULL)
+colnames(out) <- c("MLE")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+
+### Compare to "ruGarch" Based on Student t error
+
+```{r}
+spec <- ugarchspec(variance.model=list(model="sGARCH", garchOrder=c(1,1)),
+                   mean.model = list(armaOrder = c(0,0)),
+                   distribution.model = "std")
+garch.fit4 <- ugarchfit(data = dax, spec = spec)
+```
+
+#### Summarize Output
+
+```{r}
+lik.garch(arch2psi(coef(garch.fit4)[2:(p+q+2)]),dax,p,coef(garch.fit4)[p+q+3])
+out <- cbind(round(coef(garch.fit4),digits=6),NULL)
+colnames(out) <- c("MLE")
+label <- c("mu","alpha0")
+if(p > 0) { for(i in 1:p) { label <- c(label,paste("alpha",i,sep="")) } }
+if(q > 0) { for(i in 1:q) { label <- c(label,paste("beta",i,sep="")) } }
+label <- c(label,"df")
+rownames(out) <- label
+print(out)
+```
+ 
+
